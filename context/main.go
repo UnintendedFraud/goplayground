@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"time"
 )
@@ -11,12 +10,12 @@ import (
 const PORT = 8080
 
 func main() {
-	server := NewServer(3 * time.Second)
+	server := NewServer(1 * time.Second)
 
 	server.Handle(
-		"/get-random-number",
+		"/get-value",
 		addValueToContext,
-		handleGetRandomNumber,
+		handleGetValue,
 	)
 
 	if err := server.Listen(PORT); err != nil {
@@ -25,21 +24,76 @@ func main() {
 	fmt.Println("listening on :", PORT)
 }
 
-func handleGetRandomNumber(next http.Handler) http.Handler {
+func handleGetValue(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Random number: ", r.Context().Value("number"))
-		w.Write([]byte(`{"error": "process timeout"}`))
+		fmt.Println("starting handleGetValue")
+		defer fmt.Println("finished executing handleGetNumber")
+
+		message, err := executeHandleGetValue(r.Context(), r)
+		if err != nil {
+			w.Write([]byte(fmt.Sprintf("\nError happened: %s", err.Error())))
+			fmt.Println("Error happened: ", err)
+			return
+		}
+
+		w.Write([]byte(message))
+
 	})
+}
+
+func executeHandleGetValue(ctx context.Context, r *http.Request) (string, error) {
+	chanErr := make(chan error, 1)
+
+	go func() {
+		fmt.Println("executeHandleGetValue started")
+
+		time.Sleep(2 * time.Second)
+
+		// simulate errors
+		shouldError := true
+
+		if shouldError {
+			chanErr <- fmt.Errorf("an error happened during goroutine")
+		} else {
+			chanErr <- nil
+		}
+
+		fmt.Println("executeHandleGetValue ended")
+	}()
+
+	select {
+	case <-ctx.Done():
+		<-chanErr
+		return "", ctx.Err()
+	case err := <-chanErr:
+		return "finished successfully", err
+	}
 }
 
 func addValueToContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := rand.Intn(50)
-		ctx := context.WithValue(r.Context(), "number", n)
-		fmt.Println("add value to context: ", n)
+		// Add simple values
+		ctx1 := context.WithValue(r.Context(), "number", 420)
+		ctx2 := context.WithValue(ctx1, "sad_message", "RIP Toriyama :(")
 
-		time.Sleep(10 * time.Second)
+		// Add a more complex one
+		cs := ComplexStruct{
+			question: "What is your favourite Dragon Ball character?",
+			possibleAnswers: []string{
+				"Goku",
+				"Gohan",
+				"Vegeta",
+				"You get the idea zz",
+			},
+		}
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		ctx3 := context.WithValue(ctx2, "complex_struct", cs)
+
+		next.ServeHTTP(w, r.WithContext(ctx3))
 	})
+}
+
+type ComplexStruct struct {
+	question        string
+	possibleAnswers []string
 }

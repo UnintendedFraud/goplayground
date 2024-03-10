@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -21,7 +20,13 @@ func NewServer(timeout time.Duration) *Server {
 }
 
 func (s *Server) Handle(addr string, handlers ...ServerHandler) {
-	middlewares := append([]ServerHandler{s.ctxMiddleware}, handlers...)
+	var middlewares []ServerHandler
+
+	if s.timeout == 0 {
+		middlewares = handlers
+	} else {
+		middlewares = append([]ServerHandler{s.timeoutMiddleware}, handlers...)
+	}
 
 	http.Handle(addr, handleMiddlewares(middlewares))
 }
@@ -34,25 +39,12 @@ func (s *Server) Listen(port int) error {
 	return nil
 }
 
-func (s *Server) ctxMiddleware(next http.Handler) http.Handler {
+func (s *Server) timeoutMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
 		defer cancel()
 
-		processDone := make(chan bool)
-
-		go func() {
-			next.ServeHTTP(w, r.WithContext(ctx))
-			processDone <- true
-		}()
-
-		select {
-		case <-ctx.Done():
-			w.Write([]byte(`{"error": "context expired"}`))
-			log.Panicln("context expired")
-		case <-processDone:
-			fmt.Println("process done")
-		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
