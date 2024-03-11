@@ -1,34 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 type ServerHandler func(http.Handler) http.Handler
 
-type Server struct {
-	timeout time.Duration
-}
-
-func NewServer(timeout time.Duration) *Server {
-	return &Server{
-		timeout,
-	}
-}
+type Server struct{}
 
 func (s *Server) Handle(addr string, handlers ...ServerHandler) {
-	var middlewares []ServerHandler
-
-	if s.timeout == 0 {
-		middlewares = handlers
-	} else {
-		middlewares = append([]ServerHandler{s.timeoutMiddleware}, handlers...)
-	}
-
-	http.Handle(addr, handleMiddlewares(middlewares))
+	http.Handle(addr, handleMiddlewares(handlers))
 }
 
 func (s *Server) Listen(port int) error {
@@ -37,15 +19,6 @@ func (s *Server) Listen(port int) error {
 	}
 
 	return nil
-}
-
-func (s *Server) timeoutMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
-		defer cancel()
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
 
 func handleMiddlewares(handlers []ServerHandler) http.Handler {

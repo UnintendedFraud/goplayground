@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -10,13 +11,9 @@ import (
 const PORT = 8080
 
 func main() {
-	server := NewServer(1 * time.Second)
+	server := &Server{}
 
-	server.Handle(
-		"/get-value",
-		addValueToContext,
-		handleGetValue,
-	)
+	server.Handle("/get-value", addValueToContext, handleGetValue)
 
 	if err := server.Listen(PORT); err != nil {
 		panic(err)
@@ -26,48 +23,50 @@ func main() {
 
 func handleGetValue(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("starting handleGetValue")
-		defer fmt.Println("finished executing handleGetNumber")
+		log.Println("handleGetValue started")
+		defer log.Println("handleGetNumber ended")
 
-		message, err := executeHandleGetValue(r.Context(), r)
+		ctx, cancelCtx := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancelCtx()
+
+		err := someLongAction(ctx)
 		if err != nil {
-			w.Write([]byte(fmt.Sprintf("\nError happened: %s", err.Error())))
-			fmt.Println("Error happened: ", err)
+			w.Write([]byte(fmt.Sprintf("\n%s - Error happened: %s", t(), err.Error())))
+			log.Println("Error happened: ", err)
 			return
 		}
 
-		w.Write([]byte(message))
-
+		w.Write([]byte(fmt.Sprintf("%s -- operation finished successfully", t())))
 	})
 }
 
-func executeHandleGetValue(ctx context.Context, r *http.Request) (string, error) {
+func someLongAction(ctx context.Context) error {
+	log.Println("someLongAction started")
+	defer log.Println("someLongAction ended")
+
+	select {
+	case err := <-simulatingOperation():
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func simulatingOperation() chan error {
+	log.Println("simlatingOperation started")
+	defer log.Println("simlatingOperation ended")
+
 	chanErr := make(chan error, 1)
 
 	go func() {
-		fmt.Println("executeHandleGetValue started")
+		log.Println("goroutine in simulatingOperation started")
+		defer log.Println("goroutine in simulatingOperation ended")
 
-		time.Sleep(2 * time.Second)
-
-		// simulate errors
-		shouldError := true
-
-		if shouldError {
-			chanErr <- fmt.Errorf("an error happened during goroutine")
-		} else {
-			chanErr <- nil
-		}
-
-		fmt.Println("executeHandleGetValue ended")
+		time.Sleep(5 * time.Second)
+		chanErr <- fmt.Errorf("something terrible happened, PLEASE HELP!")
 	}()
 
-	select {
-	case <-ctx.Done():
-		<-chanErr
-		return "", ctx.Err()
-	case err := <-chanErr:
-		return "finished successfully", err
-	}
+	return chanErr
 }
 
 func addValueToContext(next http.Handler) http.Handler {
@@ -91,6 +90,10 @@ func addValueToContext(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(ctx3))
 	})
+}
+
+func t() string {
+	return time.Now().Format("15:06:05")
 }
 
 type ComplexStruct struct {
